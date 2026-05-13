@@ -1,0 +1,246 @@
+---
+title: "No todos los turistas viajan igual"
+format:
+  html:
+    theme: minty
+    toc: true
+    embeded-resources: true
+editor: visual
+---
+********
+## Introducción
+
+En esta visualización se exploran los patrones de comportamiento de las y los turistas que visitan Portugal a partir de datos reales de reservas hoteleras en hoteles de ciudad de Lisboa y  hoteles tipo resort en el Algarve.
+
+El objetivo es observar cómo varía el comportamiento de las y los viajeros según su país de origen, la estación, el tipo de viaje, el coste de las reservas o las cancelaciones, mostrando que cada turista viaja de manera diferente.
+
+El conjunto de datos proviene del siguiente artículo científico:
+
+<https://doi.org/10.1016/j.dib.2018.11.126>.
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+# Carga de librerías
+library(tidyverse)
+library(dplyr)
+library(plotly)
+library(ggplot2)
+library(lubridate)
+library(ggmosaic)
+library(viridis)
+library(showtext)
+# Cargar fuente
+font_add_google("Montserrat", "Montserrat")
+showtext_auto()
+```
+
+## Turismo internacional
+
+```{r}
+#| echo: false
+#| include: false
+hotels <- read.csv("hotel_bookings.csv")
+dim(hotels)
+```
+
+```{r summary}
+#| echo: false
+#| include: false
+summary(hotels)
+```
+
+```{r clean_hoteles}
+#| echo: false
+#| include: false
+hotels = hotels[hotels$adults<10,]
+hotels = hotels[!is.na(hotels$children) & hotels$children<10,]
+hotels = hotels[hotels$babies<5,]
+hotels = hotels[hotels$adr>=0 & hotels$adr<1000,]
+hotels[is.na(hotels$children),'children']=0
+hotels=hotels[hotels$adr>0 & 
+    (hotels$stays_in_week_nights+hotels$stays_in_weekend_nights)>0 & 
+    (hotels$adults+hotels$children+hotels$babies)>0 & 
+    !is.na(hotels$children),]
+```
+
+```{r dia}
+#| echo: false
+#| include: false
+hotels$dia=as_date(paste0(hotels$arrival_date_year,'-',hotels$arrival_date_month,'-',hotels$arrival_date_day_of_month))
+```
+
+```{r tipo}
+#| echo: false
+#| include: false
+hotels$tipo=ifelse(hotels$stays_in_weekend_nights==0, "trabajo",
+       ifelse(hotels$stays_in_week_nights==0, "fin de semana",
+       ifelse(hotels$stays_in_week_nights==1 & wday(hotels$dia)==6, "fin de semana",
+       ifelse(hotels$stays_in_week_nights==5 & 
+              (hotels$stays_in_weekend_nights==3 |
+               hotels$stays_in_weekend_nights==4), "paquete",
+       ifelse(hotels$stays_in_week_nights<=5 & 
+              hotels$stays_in_weekend_nights<3, "trabajo + descanso",
+       "descanso")))))
+```
+
+Portugal recibe turismo de diferentes países del mundo. Destacan países como Gran Bretaña, Francia o España.
+
+```{r map_choropleth}
+#| echo: false
+
+countries <- hotels %>%
+  group_by(country) %>%
+  summarise(Reservas = n()) %>%
+  filter(Reservas >= 100)
+
+plot_ly(
+  data = countries,
+  locations = ~country,
+  z = ~Reservas,
+  type = "choropleth",
+  colorscale = "Viridis"
+)
+```
+
+## La estacionalidad del turismo
+
+Se observan picos de reservas en primavera y otoño, lo que sugiere que los turistas de los países más habituales eligen épocas templadas.
+
+```{r heatmap}
+#| echo: false
+#| message: false
+hotels$month <- month(hotels$dia, label = TRUE)
+hotels$year <- year(hotels$dia)
+
+heat <- hotels %>%
+  group_by(year, month) %>%
+  summarise(Reservas = n(), .groups = "drop")
+
+heatmap_plot <- ggplot(heat, aes(
+  x = month,
+  y = factor(year), 
+  fill = Reservas,
+  text = paste0(
+    "Año: ", year,
+    "<br>Mes: ", month,
+    "<br>Reservas: ", Reservas
+  )
+  )) +
+  geom_tile(color = "white") +
+  scale_fill_viridis(option = "viridis") +
+  
+  labs(
+    title = "Reservas a lo largo del año ( julio 2015 - agosto 2017)",
+    x = "",
+    y = "",
+    fill = "Reservas"
+  ) +
+  theme_minimal() +
+  theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, family = "Montserrat"),
+      axis.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat")
+  )
+
+ggplotly(heatmap_plot, tooltip = "text")
+```
+
+## Diferentes formas de viajar
+
+Las reservas por trabajo predominan siendo en promedio un poco mayores aquellas estancias que se compaginan con descanso.
+
+```{r graf_tipo}
+#| echo: false
+
+hotels_filtered <- hotels %>%
+  group_by(tipo) %>%
+  summarise(Reservas = n())
+
+graf <- ggplot(data = hotels_filtered, aes(
+  x = tipo,
+  y = Reservas,
+  fill = tipo,
+  text = paste0(
+    "Tipo de viaje: ", tipo,
+    "<br>Reservas: ", Reservas
+  )
+  )) +
+  scale_fill_viridis_d(option = "viridis") +
+  geom_col(aes(fill = tipo), show.legend = FALSE, width = 0.5) +
+  theme_minimal() + 
+  labs(
+    title = "Tipos de viajes en las reservas",
+    x = NULL,
+    y = "Número de reservas"
+  ) +
+    theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, family = "Montserrat"),
+    axis.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+    legend.position = "none"
+    )
+ggplotly(graf, tooltip = "text")
+```
+
+## El coste de viajar
+
+Aunque la mediana de precios está entorno a 100€ en general, hay una mayor dispersión de precios en los viajes de trabajo.
+
+```{r violin_plot}
+#| echo: false
+
+violin_plot <- ggplot(hotels, aes(
+  x = tipo,
+  y = adr,
+  fill = tipo)) +
+  geom_violin(alpha = .7, scale = "width") +
+  coord_cartesian(ylim = c(0, 300)) +
+  scale_fill_viridis_d() +
+  labs(
+    title = "Distribución del precio según tipo de viaje",
+    x = "",
+    y = "Precio medio diario (€)"
+  ) +
+  
+  theme_minimal() +
+  theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, family = "Montserrat"),
+      axis.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      axis.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.position = "none")
+ggplotly(violin_plot)
+```
+
+## Cancelaciones y tipo de alojamiento
+
+La proporción de cancelaciones es similar entre los distintos tipos de viajes, lo que sugiere que dichas cancelaciones no dependen del tipo de viaje.
+
+```{r hist_is_cancelled}
+#| echo: false
+hotels$is_canceled=as.factor(hotels$is_canceled)
+iscancel_plot <- ggplot(hotels, aes(x = tipo, fill = is_canceled)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Cancelaciones según tipo de viaje",
+    x = "",
+    y = "Proporción",
+    fill = "Cancelado"
+  ) +
+  theme_light() +
+  theme(
+      plot.title = element_text(face = "bold", size = 16, hjust = 0.5, family = "Montserrat"),
+      axis.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      axis.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.title = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+      legend.text = element_text(face = "bold", size = 12, hjust = 0.5, family = "Montserrat"),
+legend.position = "none")
+ggplotly(iscancel_plot)
+```
+
+## Conclusión
+
+Los datos muestran que aunque la mayor parte del turismo proviene de Portugal, países como Francia, Gran Bretaña y España destacan. Además, la actividad turística se concentra en primavera y otoño. Por otro lado, no hay un patrón claro de tipos de viajes y sus cancelaciones ya que se cancelan independientemente del tipo de viaje. Por último, los precios varían mucho según el tipo de viaje.
